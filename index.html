@@ -143,8 +143,6 @@
     <div class="sub">고속도로를 질주하세요!</div>
     <div class="controls">
       <span><span class="key">← →</span> / <span class="key">A D</span></span><span>이동</span>
-      <span><span class="key">↑</span> / <span class="key">W</span></span><span>가속</span>
-      <span><span class="key">↓</span> / <span class="key">S</span></span><span>감속</span>
       <span><span class="key">Space</span></span><span>시작</span>
     </div>
     <button class="btn" id="start-btn">출발!</button>
@@ -172,7 +170,7 @@
   const ROAD_X = 70, ROAD_W = 360, LANES = 3;
   const LANE_W = ROAD_W / LANES;
   const laneCenter = i => ROAD_X + LANE_W * i + LANE_W / 2;
-  const CAR_W = 46, CAR_H = 82;
+  const CAR_W = 58, CAR_H = 102;
 
   const CAR_COLORS = ['#e94560', '#48dbfb', '#feca57', '#1dd1a1', '#ff9ff3', '#a29bfe', '#ffffff'];
 
@@ -184,7 +182,6 @@
     mode: 'start',           // start | play | over
     kmh: 0,
     baseKmh: 90,
-    maxKmh: 260,
     dist: 0,
     scrollY: 0,
     shake: 0,
@@ -322,12 +319,10 @@
 
   // ====== Update ======
   function update(dt) {
-    // --- speed ---
-    state.baseKmh = Math.min(state.maxKmh, state.baseKmh + 5.5 * dt); // difficulty ramp
-    let target = state.baseKmh;
-    if (key('arrowup') || key('w')) target += 90;
-    if (key('arrowdown') || key('s')) target -= 55;
-    state.kmh += (target - state.kmh) * Math.min(1, dt * 2.2);
+    // --- speed: fully automatic, no limit ---
+    const accel = 7 + state.baseKmh * 0.008; // acceleration grows with speed
+    state.baseKmh += accel * dt;
+    state.kmh += (state.baseKmh - state.kmh) * Math.min(1, dt * 2.2);
     state.kmh = Math.max(40, state.kmh);
 
     const scroll = state.kmh * 3.2; // px/s
@@ -384,7 +379,7 @@
       p.vy += 300 * dt;
     }
 
-    if (audio) audio.eng.frequency.value = 50 + state.kmh * 0.85;
+    if (audio) audio.eng.frequency.value = Math.min(400, 50 + state.kmh * 0.85);
 
     // --- HUD ---
     distEl.textContent = Math.floor(state.dist);
@@ -507,10 +502,10 @@
     const tilt = Math.max(-0.09, Math.min(0.09, player.vx * 0.00028));
     if (state.mode !== 'over') {
       drawCar(player.x, player.y, '#e94560', tilt);
-      // exhaust flames when accelerating
-      if (state.mode === 'play' && (key('arrowup') || key('w'))) {
+      // exhaust flames — stronger as speed builds
+      if (state.mode === 'play') {
         ctx.fillStyle = `rgba(255, ${150 + Math.random() * 80}, 60, 0.85)`;
-        const fl = 10 + Math.random() * 14;
+        const fl = 6 + Math.min(22, state.kmh * 0.06) + Math.random() * 10;
         ctx.fillRect(player.x - 14, player.y + CAR_H / 2, 6, fl);
         ctx.fillRect(player.x + 8, player.y + CAR_H / 2, 6, fl);
       }

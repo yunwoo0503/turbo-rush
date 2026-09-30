@@ -170,7 +170,8 @@
   const ROAD_X = 70, ROAD_W = 360, LANES = 3;
   const LANE_W = ROAD_W / LANES;
   const laneCenter = i => ROAD_X + LANE_W * i + LANE_W / 2;
-  const CAR_W = 58, CAR_H = 102;
+  const CAR_W = 58, CAR_H = 102;      // enemy cars
+  const PLAYER_W = 78, PLAYER_H = 120; // player car — noticeably bigger
 
   const CAR_COLORS = ['#e94560', '#48dbfb', '#feca57', '#1dd1a1', '#ff9ff3', '#a29bfe', '#ffffff'];
 
@@ -181,7 +182,7 @@
   const state = {
     mode: 'start',           // start | play | over
     kmh: 0,
-    baseKmh: 90,
+    baseKmh: 140,
     dist: 0,
     scrollY: 0,
     shake: 0,
@@ -271,8 +272,8 @@
   function startGame() {
     ensureAudio();
     state.mode = 'play';
-    state.kmh = 90;
-    state.baseKmh = 90;
+    state.kmh = 140;
+    state.baseKmh = 140;
     state.dist = 0;
     state.shake = 0;
     state.spawnDist = 0;
@@ -320,7 +321,8 @@
   // ====== Update ======
   function update(dt) {
     // --- speed: fully automatic, no limit ---
-    const accel = 7 + state.baseKmh * 0.008; // acceleration grows with speed
+    // starts fast, and the rate of increase gently tapers instead of snowballing
+    const accel = Math.max(1.2, 4.2 - state.baseKmh * 0.006);
     state.baseKmh += accel * dt;
     state.kmh += (state.baseKmh - state.kmh) * Math.min(1, dt * 2.2);
     state.kmh = Math.max(40, state.kmh);
@@ -341,21 +343,33 @@
       player.vx += (dir * 440 - player.vx) * Math.min(1, dt * 9);
       player.x += player.vx * dt;
     }
-    const minX = ROAD_X + 8 + CAR_W / 2, maxX = ROAD_X + ROAD_W - 8 - CAR_W / 2;
+    const minX = ROAD_X + 8 + PLAYER_W / 2, maxX = ROAD_X + ROAD_W - 8 - PLAYER_W / 2;
     if (player.x < minX) { player.x = minX; player.vx = 0; }
     if (player.x > maxX) { player.x = maxX; player.vx = 0; }
 
     // --- spawn enemies ---
+    // Traffic density scales with speed so a single lane can't survive forever.
     state.spawnDist += scroll * dt;
     if (state.spawnDist >= state.nextSpawn) {
       state.spawnDist = 0;
-      state.nextSpawn = 250 + Math.random() * 260;
-      state.enemies.push({
-        x: laneCenter(Math.floor(Math.random() * LANES)),
-        y: -CAR_H - 20,
-        kmh: 55 + Math.random() * 75,
-        color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)],
-      });
+      const speedRatio = Math.min(1, (state.kmh - 140) / 300); // 0 at start, 1 at ~440kmh
+      state.nextSpawn = (300 + Math.random() * 300) * (1 - speedRatio * 0.62);
+
+      // Pick a random lane; at higher speeds occasionally block two lanes at once
+      const lane1 = Math.floor(Math.random() * LANES);
+      const push = { x: laneCenter(lane1), y: -CAR_H - 20, kmh: 55 + Math.random() * 75, color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)] };
+      state.enemies.push(push);
+
+      if (Math.random() < 0.18 + speedRatio * 0.4) {
+        let lane2 = Math.floor(Math.random() * LANES);
+        if (lane2 === lane1) lane2 = (lane2 + 1 + Math.floor(Math.random() * (LANES - 1))) % LANES;
+        state.enemies.push({
+          x: laneCenter(lane2),
+          y: -CAR_H - 20 - Math.random() * 60,
+          kmh: push.kmh + (Math.random() * 20 - 10),
+          color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)],
+        });
+      }
     }
 
     // --- move enemies & collision ---
@@ -364,8 +378,8 @@
       e.y += (state.kmh - e.kmh) * 3.2 * dt;
       if (e.y > H + 140 || e.y < -CAR_H * 4) { state.enemies.splice(i, 1); continue; }
       if (
-        Math.abs(e.x - player.x) < (CAR_W + CAR_W) / 2 - 10 &&
-        Math.abs(e.y - player.y) < (CAR_H + CAR_H) / 2 - 12
+        Math.abs(e.x - player.x) < (CAR_W + PLAYER_W) / 2 - 16 &&
+        Math.abs(e.y - player.y) < (CAR_H + PLAYER_H) / 2 - 16
       ) { crash(); return; }
     }
 
@@ -397,8 +411,7 @@
     ctx.closePath();
   }
 
-  function drawCar(x, y, color, tilt) {
-    const w = CAR_W, h = CAR_H;
+  function drawCar(x, y, color, tilt, w = CAR_W, h = CAR_H) {
     ctx.save();
     ctx.translate(x, y);
     if (tilt) ctx.rotate(tilt);
@@ -498,16 +511,16 @@
     // enemies
     for (const e of state.enemies) drawCar(e.x, e.y, e.color, 0);
 
-    // player (drawn even on start screen, frozen on game over)
+    // player — bigger, drawn even on start screen, frozen on game over
     const tilt = Math.max(-0.09, Math.min(0.09, player.vx * 0.00028));
     if (state.mode !== 'over') {
-      drawCar(player.x, player.y, '#e94560', tilt);
+      drawCar(player.x, player.y, '#e94560', tilt, PLAYER_W, PLAYER_H);
       // exhaust flames — stronger as speed builds
       if (state.mode === 'play') {
         ctx.fillStyle = `rgba(255, ${150 + Math.random() * 80}, 60, 0.85)`;
         const fl = 6 + Math.min(22, state.kmh * 0.06) + Math.random() * 10;
-        ctx.fillRect(player.x - 14, player.y + CAR_H / 2, 6, fl);
-        ctx.fillRect(player.x + 8, player.y + CAR_H / 2, 6, fl);
+        ctx.fillRect(player.x - 22, player.y + PLAYER_H / 2, 7, fl);
+        ctx.fillRect(player.x + 15, player.y + PLAYER_H / 2, 7, fl);
       }
     }
 
